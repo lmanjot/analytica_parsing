@@ -1,9 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-import paramiko
+from typing import List, Dict, Any
 import os
-import io
 
 app = FastAPI(title="HL7 Parser API", description="Parse HL7 files from SFTP server")
 
@@ -103,71 +101,22 @@ def parse_hl7_message(hl7_data: str) -> Dict[str, Any]:
         "message_type": message_type
     }
 
-def download_file_from_sftp(file_path: str) -> str:
-    """Download file from SFTP server and return content as string"""
-    ssh = None
-    sftp = None
-    try:
-        # Get credentials from environment variables
-        username = os.getenv('SFTP_USERNAME')
-        password = os.getenv('SFTP_PASSWORD')
-        hostname = 'anacom.analytica.ch'
-        
-        print(f"Attempting SFTP connection to {hostname}")
-        print(f"Username: {username[:3]}***" if username else "No username")
-        print(f"File path: {file_path}")
-        
-        if not username or not password:
-            raise ValueError("SFTP credentials not found in environment variables")
-        
-        # Create SFTP connection with better error handling
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        print("Connecting to SFTP server...")
-        ssh.connect(
-            hostname, 
-            username=username, 
-            password=password, 
-            timeout=30,
-            allow_agent=False,
-            look_for_keys=False
-        )
-        
-        sftp = ssh.open_sftp()
-        
-        print(f"Downloading file: {file_path}")
-        # Download file content
-        with sftp.open(file_path, 'r') as remote_file:
-            content = remote_file.read().decode('utf-8')
-        
-        print(f"Successfully downloaded {len(content)} characters")
-        return content
-        
-    except Exception as e:
-        print(f"SFTP Error: {str(e)}")
-        raise Exception(f"Failed to download file from SFTP: {str(e)}")
-    finally:
-        # Ensure connections are closed
-        if sftp:
-            try:
-                sftp.close()
-            except:
-                pass
-        if ssh:
-            try:
-                ssh.close()
-            except:
-                pass
+@app.get("/")
+async def root():
+    return {"message": "HL7 Parser API", "version": "1.0.0", "status": "running"}
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy", "service": "HL7 Parser API"}
 
 @app.post("/api/test-parse")
 async def test_parse():
     """Test parsing with sample HL7 data"""
-    sample_hl7 = """MSH|^~\\&|TEST|TEST|||20250101120000||ORU^R01|123|P|2.4
+    try:
+        sample_hl7 = """MSH|^~\\&|TEST|TEST|||20250101120000||ORU^R01|123|P|2.4
 PID|1||12345||TEST^PATIENT||19900101|M|||ADR^^CITY^STATE^ZIP^COUNTRY||TEL||
 OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||"""
-    
-    try:
+        
         parsed_data = parse_hl7_message(sample_hl7)
         return {
             "status": "success",
@@ -178,38 +127,12 @@ OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||"""
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.post("/api/parse-hl7", response_model=HL7Response)
-async def parse_hl7_file(request: FilePathRequest):
-    """
-    Parse HL7 file from SFTP server and return as JSON
-    """
-    try:
-        # Download file from SFTP
-        hl7_content = download_file_from_sftp(request.file_path)
-        
-        # Parse HL7 content
-        parsed_data = parse_hl7_message(hl7_content)
-        
-        return HL7Response(
-            parsed_data=parsed_data,
-            message_type=parsed_data["message_type"],
-            segments=parsed_data["all_segments"],
-            file_path=request.file_path
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error processing HL7 file: {str(e)}")
-
-@app.get("/")
-async def root():
-    return {"message": "HL7 Parser API", "version": "1.0.0", "status": "running"}
-
-@app.get("/api/test-sftp")
+@app.post("/api/test-sftp")
 async def test_sftp_connection():
     """Test SFTP connection and environment variables"""
     try:
-        username = os.getenv('SFTP_USERNAME') or os.getenv('USERNAME') or os.getenv('username')
-        password = os.getenv('SFTP_PASSWORD') or os.getenv('PASSWORD') or os.getenv('password')
+        username = os.getenv('SFTP_USERNAME')
+        password = os.getenv('SFTP_PASSWORD')
         
         return {
             "status": "ok",
@@ -221,9 +144,23 @@ async def test_sftp_connection():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/health")
-async def health_check():
-    return {"status": "healthy", "service": "HL7 Parser API"}
+@app.post("/api/parse-hl7", response_model=HL7Response)
+async def parse_hl7_file(request: FilePathRequest):
+    """
+    Parse HL7 file from SFTP server and return as JSON
+    """
+    try:
+        # For now, return a placeholder response
+        # We'll add SFTP functionality once basic parsing works
+        return HL7Response(
+            parsed_data={"message": "SFTP functionality temporarily disabled for debugging"},
+            message_type="TEST",
+            segments=[],
+            file_path=request.file_path
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing HL7 file: {str(e)}")
 
 # For Vercel deployment
 def handler(request):
