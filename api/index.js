@@ -199,6 +199,28 @@ OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||`;
     }
 });
 
+// Also add a GET version for easier testing
+app.get('/api/test-parse', (req, res) => {
+    try {
+        console.log('Test parse GET endpoint called');
+        const sampleHL7 = `MSH|^~\\&|TEST|TEST|||20250101120000||ORU^R01|123|P|2.4
+PID|1||12345||TEST^PATIENT||19900101|M|||ADR^^CITY^STATE^ZIP^COUNTRY||TEL||
+OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||`;
+        
+        const parsedData = parseHL7Message(sampleHL7);
+        res.json({
+            status: 'success',
+            message_type: parsedData.message_type,
+            segments: parsedData.all_segments.length,
+            test: 'HL7 parsing works',
+            method: 'GET'
+        });
+    } catch (error) {
+        console.error('Test parse error:', error);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+});
+
 app.post('/api/test-sftp', (req, res) => {
     try {
         const username = process.env.SFTP_USERNAME;
