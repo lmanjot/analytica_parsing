@@ -54,73 +54,218 @@ function parseHL7Segment(segment) {
     return parsedSegment;
 }
 
+// Helper function to get field value by position
+function getField(parts, index) {
+    return parts[index] || '';
+}
+
+// Helper function to get subfield value
+function getSubfield(field, index) {
+    if (!field) return '';
+    const subfields = field.split('^');
+    return subfields[index] || '';
+}
+
+// Helper function to format date from YYYYMMDD to ISO
+function formatDate(hl7Date) {
+    if (!hl7Date || hl7Date.length !== 8) return hl7Date;
+    return `${hl7Date.substring(0,4)}-${hl7Date.substring(4,6)}-${hl7Date.substring(6,8)}`;
+}
+
+// Helper function to format datetime from HL7 timestamp
+function formatDateTime(hl7DateTime) {
+    if (!hl7DateTime || hl7DateTime.length < 8) return hl7DateTime;
+    const date = hl7DateTime.substring(0,8);
+    const time = hl7DateTime.substring(8);
+    if (time.length >= 6) {
+        return `${formatDate(date)}T${time.substring(0,2)}:${time.substring(2,4)}:${time.substring(4,6)}`;
+    }
+    return formatDate(date);
+}
+
+function parseMessageHeader(parts) {
+    const messageTypeField = getField(parts, 9);
+    const messageTypeParts = messageTypeField.split('^');
+    
+    return {
+        sendingApp: getField(parts, 3),
+        sendingFacility: getField(parts, 4),
+        messageDateTime: formatDateTime(getField(parts, 7)),
+        messageType: {
+            id: messageTypeParts[0] || '',
+            trigger: messageTypeParts[1] || ''
+        },
+        controlId: getField(parts, 10),
+        processingId: getField(parts, 11),
+        version: getField(parts, 12),
+        charset: getField(parts, 18) || undefined
+    };
+}
+
+function parsePatient(parts) {
+    const idField = getField(parts, 3);
+    const nameField = getField(parts, 5);
+    const addressField = getField(parts, 11);
+    
+    const patient = {
+        id: getSubfield(idField, 0),
+        assigningAuthority: getSubfield(idField, 5) || undefined,
+        lastName: getSubfield(nameField, 0),
+        firstName: getSubfield(nameField, 1),
+        birthDate: formatDate(getField(parts, 7)),
+        sex: getField(parts, 8),
+        phone: getField(parts, 13) || undefined
+    };
+    
+    if (addressField) {
+        patient.address = {
+            street: getSubfield(addressField, 0) || undefined,
+            city: getSubfield(addressField, 2) || undefined,
+            state: getSubfield(addressField, 3) || undefined,
+            zip: getSubfield(addressField, 4) || undefined,
+            country: getSubfield(addressField, 5) || undefined
+        };
+    }
+    
+    return patient;
+}
+
+function parseOrder(parts) {
+    const orderingProviderField = getField(parts, 12);
+    const orderDateTimeField = getField(parts, 7);
+    
+    const order = {
+        placerOrderNumber: getSubfield(getField(parts, 2), 0) || undefined,
+        fillerOrderNumber: getSubfield(getField(parts, 3), 0) || undefined,
+        orderControl: getField(parts, 1),
+        orderDateTime: getSubfield(orderDateTimeField, 3) ? formatDateTime(getSubfield(orderDateTimeField, 3)) : undefined
+    };
+    
+    if (orderingProviderField) {
+        order.orderingProvider = {
+            id: getSubfield(orderingProviderField, 0) || undefined,
+            last: getSubfield(orderingProviderField, 1) || undefined,
+            first: getSubfield(orderingProviderField, 2) || undefined,
+            authority: getSubfield(orderingProviderField, 7) || undefined
+        };
+    }
+    
+    return order;
+}
+
+function parseObservationRequest(parts) {
+    const panelField = getField(parts, 4);
+    const orderingProviderField = getField(parts, 16);
+    const resultDateTimeField = getField(parts, 27);
+    
+    const obr = {
+        panelCode: getSubfield(panelField, 0),
+        panelText: getSubfield(panelField, 1) || undefined,
+        obrDateTime: formatDateTime(getField(parts, 7)) || undefined,
+        resultDateTime: getSubfield(resultDateTimeField, 3) ? formatDateTime(getSubfield(resultDateTimeField, 3)) : undefined
+    };
+    
+    if (orderingProviderField) {
+        obr.orderingProvider = {
+            id: getSubfield(orderingProviderField, 0) || undefined,
+            last: getSubfield(orderingProviderField, 1) || undefined,
+            first: getSubfield(orderingProviderField, 2) || undefined,
+            authority: getSubfield(orderingProviderField, 7) || undefined
+        };
+    }
+    
+    return obr;
+}
+
+function parseObservation(parts) {
+    const codeField = getField(parts, 3);
+    const unitsField = getField(parts, 6);
+    
+    return {
+        setId: parseInt(getField(parts, 1)) || 0,
+        valueType: getField(parts, 2),
+        code: getSubfield(codeField, 0),
+        text: getSubfield(codeField, 1),
+        system: getSubfield(codeField, 2) || undefined,
+        value: getField(parts, 5),
+        units: getSubfield(unitsField, 0) || undefined,
+        refRange: getField(parts, 7) || undefined,
+        abnormalFlags: getField(parts, 8) || undefined,
+        status: getField(parts, 11),
+        observationDateTime: getField(parts, 14) ? formatDateTime(getField(parts, 14)) : undefined,
+        notes: [] // Will be populated with associated NTE segments
+    };
+}
+
 function parseHL7Message(hl7Data) {
     // Clean up the data - replace \r with \n and handle different line endings
     const cleanedData = hl7Data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = cleanedData.split('\n').map(line => line.trim()).filter(line => line);
     
     console.log('Number of lines found:', lines.length);
-    console.log('First few lines:', lines.slice(0, 3));
     
     if (lines.length === 0) {
         throw new Error("Empty HL7 message");
     }
     
-    // Parse MSH segment first to get message type
-    const mshSegment = parseHL7Segment(lines[0]);
-    let messageType = "Unknown";
+    let messageHeader = null;
+    let patient = null;
+    const orders = [];
+    const observationRequests = [];
+    const observations = [];
+    const notes = [];
     
-    // Check if MSH segment has enough fields and field 9 exists
-    if (mshSegment.fields && mshSegment.fields.length >= 8 && mshSegment.fields[8]) {
-        const messageTypeField = mshSegment.fields[8].value; // MSH.9
-        if (messageTypeField && messageTypeField.includes('^')) {
-            messageType = messageTypeField.split('^')[0];
-        } else if (messageTypeField) {
-            messageType = messageTypeField;
-        }
-    }
-    
-    // Parse all segments
-    const segments = [];
-    const segmentCounts = {};
+    let currentObservation = null;
     
     for (const line of lines) {
-        const segment = parseHL7Segment(line);
-        const segmentType = segment.segment_type;
+        const parts = line.split('|');
+        const segmentType = parts[0];
         
-        // Count segments for grouping
-        if (!segmentCounts[segmentType]) {
-            segmentCounts[segmentType] = 0;
+        switch (segmentType) {
+            case 'MSH':
+                messageHeader = parseMessageHeader(parts);
+                break;
+                
+            case 'PID':
+                patient = parsePatient(parts);
+                break;
+                
+            case 'ORC':
+                orders.push(parseOrder(parts));
+                break;
+                
+            case 'OBR':
+                observationRequests.push(parseObservationRequest(parts));
+                break;
+                
+            case 'OBX':
+                currentObservation = parseObservation(parts);
+                observations.push(currentObservation);
+                break;
+                
+            case 'NTE':
+                const noteText = getField(parts, 3);
+                if (currentObservation && noteText) {
+                    currentObservation.notes.push(noteText);
+                } else if (noteText) {
+                    notes.push({
+                        setId: parseInt(getField(parts, 1)) || 0,
+                        text: noteText
+                    });
+                }
+                break;
         }
-        segmentCounts[segmentType]++;
-        
-        // Add segment number for repeated segments
-        segment.segment_number = segmentCounts[segmentType];
-        segments.push(segment);
-    }
-    
-    // Group segments by type
-    const groupedSegments = {};
-    for (const segment of segments) {
-        const segType = segment.segment_type;
-        if (!groupedSegments[segType]) {
-            groupedSegments[segType] = [];
-        }
-        groupedSegments[segType].push(segment);
     }
     
     return {
-        message_header: groupedSegments.MSH || [],
-        patient_identification: groupedSegments.PID || [],
-        patient_visit: groupedSegments.PV1 || [],
-        common_order: groupedSegments.ORC || [],
-        observation_request: groupedSegments.OBR || [],
-        observations: groupedSegments.OBX || [],
-        notes: groupedSegments.NTE || [],
-        specimen: groupedSegments.SPM || [],
-        all_segments: segments,
-        segment_counts: segmentCounts,
-        message_type: messageType
+        messageHeader,
+        patient,
+        orders,
+        observationRequests,
+        observations,
+        notes,
+        messageType: messageHeader?.messageType?.id || 'Unknown',
+        totalSegments: lines.length
     };
 }
 
