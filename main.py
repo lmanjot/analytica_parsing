@@ -1,17 +1,20 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-import re
+import paramiko
+import os
+import io
 
-app = FastAPI(title="HL7 Parser API", description="Parse HL7 format data to JSON")
+app = FastAPI(title="HL7 Parser API", description="Parse HL7 files from SFTP server")
 
-class HL7Request(BaseModel):
-    hl7_data: str
+class FilePathRequest(BaseModel):
+    file_path: str
 
 class HL7Response(BaseModel):
     parsed_data: Dict[str, Any]
     message_type: str
     segments: List[Dict[str, Any]]
+    file_path: str
 
 def parse_hl7_segment(segment: str) -> Dict[str, Any]:
     """Parse a single HL7 segment into structured data"""
@@ -100,32 +103,65 @@ def parse_hl7_message(hl7_data: str) -> Dict[str, Any]:
         "message_type": message_type
     }
 
+def download_file_from_sftp(file_path: str) -> str:
+    """Download file from SFTP server and return content as string"""
+    try:
+        # Get credentials from environment variables
+        username = os.getenv('SFTP_USERNAME')
+        password = os.getenv('SFTP_PASSWORD')
+        hostname = 'anacom.analytica.ch'
+        
+        if not username or not password:
+            raise ValueError("SFTP credentials not found in environment variables")
+        
+        # Create SFTP connection
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        ssh.connect(hostname, username=username, password=password)
+        sftp = ssh.open_sftp()
+        
+        # Download file content
+        with sftp.open(file_path, 'r') as remote_file:
+            content = remote_file.read().decode('utf-8')
+        
+        sftp.close()
+        ssh.close()
+        
+        return content
+        
+    except Exception as e:
+        raise Exception(f"Failed to download file from SFTP: {str(e)}")
+
 @app.post("/parse-hl7", response_model=HL7Response)
-async def parse_hl7(request: HL7Request):
+async def parse_hl7_file(request: FilePathRequest):
     """
-    Parse HL7 format data and return as JSON
+    Parse HL7 file from SFTP server and return as JSON
     """
     try:
-        # Clean up the HL7 data - replace \r with \n and handle escaping
-        cleaned_hl7_data = request.hl7_data.replace('\r', '\n').replace('\\&', '&')
+        # Download file from SFTP
+        hl7_content = download_file_from_sftp(request.file_path)
         
-        parsed_data = parse_hl7_message(cleaned_hl7_data)
+        # Parse HL7 content
+        parsed_data = parse_hl7_message(hl7_content)
         
         return HL7Response(
             parsed_data=parsed_data,
             message_type=parsed_data["message_type"],
-            segments=parsed_data["all_segments"]
+            segments=parsed_data["all_segments"],
+            file_path=request.file_path
         )
+        
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing HL7 data: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error processing HL7 file: {str(e)}")
 
 @app.get("/")
 async def root():
-    return {"message": "HL7 Parser API", "version": "1.0.0"}
+    return {"message": "HL7 Parser API", "version": "1.0.0", "status": "running"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "service": "HL7 Parser API"}
 
 if __name__ == "__main__":
     import uvicorn
