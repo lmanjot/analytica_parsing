@@ -2,7 +2,21 @@ const express = require('express');
 const { Client } = require('ssh2');
 const app = express();
 
-app.use(express.json());
+// Middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Add CORS headers
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+    } else {
+        next();
+    }
+});
 
 // HL7 Parser Functions
 function parseHL7Segment(segment) {
@@ -157,8 +171,17 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'healthy', service: 'HL7 Parser API' });
 });
 
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        message: 'API is working',
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.post('/api/test-parse', (req, res) => {
     try {
+        console.log('Test parse endpoint called');
         const sampleHL7 = `MSH|^~\\&|TEST|TEST|||20250101120000||ORU^R01|123|P|2.4
 PID|1||12345||TEST^PATIENT||19900101|M|||ADR^^CITY^STATE^ZIP^COUNTRY||TEL||
 OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||`;
@@ -171,7 +194,8 @@ OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||`;
             test: 'HL7 parsing works'
         });
     } catch (error) {
-        res.json({ status: 'error', message: error.message });
+        console.error('Test parse error:', error);
+        res.status(500).json({ status: 'error', message: error.message });
     }
 });
 
