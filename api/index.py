@@ -100,7 +100,7 @@ def parse_hl7_message(hl7_data: str) -> Dict[str, Any]:
         "message_type": message_type
     }
 
-@app.post("/parse-hl7", response_model=HL7Response)
+@app.post("/api/parse-hl7", response_model=HL7Response)
 async def parse_hl7(request: HL7Request):
     """
     Parse HL7 format data and return as JSON
@@ -123,7 +123,7 @@ async def parse_hl7(request: HL7Request):
 async def root():
     return {"message": "HL7 Parser API", "version": "1.0.0", "status": "running"}
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "service": "HL7 Parser API"}
 
