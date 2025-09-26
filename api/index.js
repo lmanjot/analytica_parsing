@@ -65,11 +65,12 @@ function parseHL7Message(hl7Data) {
     const mshSegment = parseHL7Segment(lines[0]);
     let messageType = "Unknown";
     
-    if (mshSegment.fields && mshSegment.fields.length >= 8) {
+    // Check if MSH segment has enough fields and field 9 exists
+    if (mshSegment.fields && mshSegment.fields.length >= 8 && mshSegment.fields[8]) {
         const messageTypeField = mshSegment.fields[8].value; // MSH.9
-        if (messageTypeField.includes('^')) {
+        if (messageTypeField && messageTypeField.includes('^')) {
             messageType = messageTypeField.split('^')[0];
-        } else {
+        } else if (messageTypeField) {
             messageType = messageTypeField;
         }
     }
@@ -207,17 +208,29 @@ app.get('/api/test-parse', (req, res) => {
 PID|1||12345||TEST^PATIENT||19900101|M|||ADR^^CITY^STATE^ZIP^COUNTRY||TEL||
 OBX|1|NM|TEST^Test Result^TEST||10.5|mg/dl^^L|5.0-15.0||||F||||||||`;
         
+        console.log('Sample HL7 data:', sampleHL7);
         const parsedData = parseHL7Message(sampleHL7);
+        console.log('Parsed data:', JSON.stringify(parsedData, null, 2));
+        
         res.json({
             status: 'success',
             message_type: parsedData.message_type,
             segments: parsedData.all_segments.length,
             test: 'HL7 parsing works',
-            method: 'GET'
+            method: 'GET',
+            debug: {
+                msh_fields: parsedData.message_header[0]?.fields?.length || 0,
+                total_segments: parsedData.all_segments.length
+            }
         });
     } catch (error) {
         console.error('Test parse error:', error);
-        res.status(500).json({ status: 'error', message: error.message });
+        console.error('Error stack:', error.stack);
+        res.status(500).json({ 
+            status: 'error', 
+            message: error.message,
+            stack: error.stack
+        });
     }
 });
 
