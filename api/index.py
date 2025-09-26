@@ -111,6 +111,10 @@ def download_file_from_sftp(file_path: str) -> str:
         password = os.getenv('SFTP_PASSWORD')
         hostname = 'anacom.analytica.ch'
         
+        print(f"Attempting SFTP connection to {hostname}")
+        print(f"Username: {username[:3]}***" if username else "No username")
+        print(f"File path: {file_path}")
+        
         if not username or not password:
             raise ValueError("SFTP credentials not found in environment variables")
         
@@ -118,9 +122,11 @@ def download_file_from_sftp(file_path: str) -> str:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
-        ssh.connect(hostname, username=username, password=password)
+        print("Connecting to SFTP server...")
+        ssh.connect(hostname, username=username, password=password, timeout=30)
         sftp = ssh.open_sftp()
         
+        print(f"Downloading file: {file_path}")
         # Download file content
         with sftp.open(file_path, 'r') as remote_file:
             content = remote_file.read().decode('utf-8')
@@ -128,9 +134,11 @@ def download_file_from_sftp(file_path: str) -> str:
         sftp.close()
         ssh.close()
         
+        print(f"Successfully downloaded {len(content)} characters")
         return content
         
     except Exception as e:
+        print(f"SFTP Error: {str(e)}")
         raise Exception(f"Failed to download file from SFTP: {str(e)}")
 
 @app.post("/api/parse-hl7", response_model=HL7Response)
@@ -158,6 +166,23 @@ async def parse_hl7_file(request: FilePathRequest):
 @app.get("/")
 async def root():
     return {"message": "HL7 Parser API", "version": "1.0.0", "status": "running"}
+
+@app.get("/api/test-sftp")
+async def test_sftp_connection():
+    """Test SFTP connection and environment variables"""
+    try:
+        username = os.getenv('SFTP_USERNAME')
+        password = os.getenv('SFTP_PASSWORD')
+        
+        return {
+            "status": "ok",
+            "username_set": bool(username),
+            "password_set": bool(password),
+            "username_preview": username[:3] + "***" if username else "Not set",
+            "hostname": "anacom.analytica.ch"
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/health")
 async def health_check():
