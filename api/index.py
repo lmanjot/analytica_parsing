@@ -106,7 +106,10 @@ async def parse_hl7(request: HL7Request):
     Parse HL7 format data and return as JSON
     """
     try:
-        parsed_data = parse_hl7_message(request.hl7_data)
+        # Clean up the HL7 data - replace \r with \n and handle escaping
+        cleaned_hl7_data = request.hl7_data.replace('\r', '\n').replace('\\&', '&')
+        
+        parsed_data = parse_hl7_message(cleaned_hl7_data)
         
         return HL7Response(
             parsed_data=parsed_data,
