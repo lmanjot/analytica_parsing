@@ -55,7 +55,12 @@ function parseHL7Segment(segment) {
 }
 
 function parseHL7Message(hl7Data) {
-    const lines = hl7Data.trim().split('\n').map(line => line.trim()).filter(line => line);
+    // Clean up the data - replace \r with \n and handle different line endings
+    const cleanedData = hl7Data.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = cleanedData.split('\n').map(line => line.trim()).filter(line => line);
+    
+    console.log('Number of lines found:', lines.length);
+    console.log('First few lines:', lines.slice(0, 3));
     
     if (lines.length === 0) {
         throw new Error("Empty HL7 message");
