@@ -106,9 +106,9 @@ def parse_hl7_message(hl7_data: str) -> Dict[str, Any]:
 def download_file_from_sftp(file_path: str) -> str:
     """Download file from SFTP server and return content as string"""
     try:
-        # Get credentials from environment variables
-        username = os.getenv('SFTP_USERNAME')
-        password = os.getenv('SFTP_PASSWORD')
+        # Get credentials from environment variables (try different possible names)
+        username = os.getenv('SFTP_USERNAME') or os.getenv('USERNAME') or os.getenv('username')
+        password = os.getenv('SFTP_PASSWORD') or os.getenv('PASSWORD') or os.getenv('password')
         hostname = 'anacom.analytica.ch'
         
         print(f"Attempting SFTP connection to {hostname}")
@@ -171,8 +171,8 @@ async def root():
 async def test_sftp_connection():
     """Test SFTP connection and environment variables"""
     try:
-        username = os.getenv('SFTP_USERNAME')
-        password = os.getenv('SFTP_PASSWORD')
+        username = os.getenv('SFTP_USERNAME') or os.getenv('USERNAME') or os.getenv('username')
+        password = os.getenv('SFTP_PASSWORD') or os.getenv('PASSWORD') or os.getenv('password')
         
         return {
             "status": "ok",
